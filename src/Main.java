@@ -2,14 +2,14 @@
 /* 
  * Programmer: 	Mitchell Foote
  * Course: 	   	COSC 311, F'23
- * Project:    	2
- * Due date:   	10-10-23
+ * Project:    	4
+ * Due date:   	11-16-23
  * Project Description: A menu driven terminal program that can read in text files and create random access files to serve as a
  * database for student records using a fixed byte length file size. Users can create, read, edit and delete student records.
  * The program allows for the creation of a database index organized by student ID to facilitate the creation, reading editing and deletion
  * of student record file by student ID. 
  * Class Description: The following main class handles all functionality other than the data structures and organization handled 
- * by the provided Student, Pair and OrderedSinglyLinkedList classes.
+ * by the provided Student, Pair, BST and QueueSLL classes.
  * */
 import java.util.*;
 import java.io.*;
@@ -26,17 +26,18 @@ public class Main {
 	
 	private static final int studentRecordSize = 92;
 	
-	//Index Data Structure using ordered 
-	private static OrderedSinglyLinkedList<Pair<Integer>> indexList = new OrderedSinglyLinkedList<>();
+	//Index Data Structure using BST 
+	private static BST<Pair<Integer>> indexBST = new BST<>();
 	
 
+	//Main prints attribution to terminal then calls menu method.
 	public static void main(String[] args) {
 		
 		
 		System.out.println("Programmer:		Mitchell Foote");
 		System.out.println("Course:			COSC 311, F'23");
-		System.out.println("Project:		1");
-		System.out.println("Due date:		9-19-23\n");
+		System.out.println("Project:		4");
+		System.out.println("Due date:		11-16-23\n");
 		
 		//Open Scanner object to take keyboard input.
 		scanner = new Scanner(System.in);
@@ -124,6 +125,7 @@ public class Main {
 		
 	}
 	
+	//builds index using a BST
 	private static void buildIndex() {
 		
 	    if (!checkRAF()) {
@@ -132,7 +134,7 @@ public class Main {
 	    }
 
 	    try {
-	        indexList = new OrderedSinglyLinkedList<>();
+	        indexBST = new BST<>();
 	        
 	        raFile.seek(0); // Reset the file pointer to the beginning of the file
 
@@ -146,12 +148,10 @@ public class Main {
 	            if (!isRecordDeleted(student)) {
 	                int studentID = student.getID();
 	                Pair<Integer> indexEntry = new Pair<Integer>(studentID, (int) (raFile.getFilePointer()/studentRecordSize) - 1);
-	                indexList.add(indexEntry);
+	                indexBST.add(indexEntry);
 
 	            }
 	        }
-
-	        System.out.println("Total records in index: " + indexList.size());
 
 	        System.out.println("Index has been built successfully!\n");
 	        
@@ -167,6 +167,7 @@ public class Main {
 	    
 	}
 	
+	//Prints out index to terminal
 	private static void displayIndex() {
 		
 	    if (checkIndex()) { // If the list is empty, then return to the menu.
@@ -174,26 +175,17 @@ public class Main {
 	        menu();
 	        return;
 	    }
-	    
-	    System.out.println("Index size: " + indexList.size());
 
 	    System.out.print("Enter the starting ID or -1 for the entire index: ");
 	    int startingID = scanner.nextInt();
 
 	    if (startingID == -1) {
 	        // Display the entire index
-	        for (Pair<Integer> pair : indexList) {
-	            System.out.println(pair.getFirst() + " " + pair.getSecond());
-	        }
+	    	indexBST.levelOrder();
 	    } else {
 	        // Display from the starting ID to the end of the index
 	        boolean found = false;
-	        for (Pair<Integer> pair : indexList) {
-	            if (pair.getFirst() >= startingID) {
-	                System.out.println(pair.getFirst() + " " + pair.getSecond());
-	                found = true;
-	            }
-	        }
+	        indexBST.levelOrderFrom(findPairByStudentID(startingID));
 	        if (!found) {
 	            System.out.println("No records found starting from ID " + startingID);
 	        }
@@ -230,21 +222,12 @@ public class Main {
 	    int studentID = scanner.nextInt();
 
 	    // Finding the index of the student ID
-	    int index = -1;
-	    int count = 0;
-	    for (Pair<Integer> pair : indexList) {
-	        if (pair.getFirst() == studentID) {
-	            index = count;
-	            break;
-	        }
-	        count++;
-	    }
 
-	    if (index != -1) {
+	    if (indexBST.find(findPairByStudentID(studentID))) {
 	    	
 	        try {
 	            // Lazy deletion from the RAF
-	            Pair<Integer> pair = indexList.get(index);
+	            Pair<Integer> pair = findPairByStudentID(studentID);
 	            raFile.seek(pair.getSecond() * studentRecordSize); // Calculate offset
 	            raFile.writeChars("DELETED");
 	            
@@ -252,7 +235,7 @@ public class Main {
 	            raFile.seek(0);
 	            
 	            // Remove from the index using the found index
-	            indexList.remove(index);
+	            indexBST.delete(pair);
 	            System.out.println("Record successfully deleted.");
 	        } catch (IOException ex) {
 	            System.out.println("Error while deleting the record: " + ex.getMessage());
@@ -345,7 +328,7 @@ public class Main {
 	        int address = (int) (raFile.getFilePointer()/studentRecordSize) - 1;
 
 	        // Add the ID and address to the index.
-	        indexList.add(new Pair<>(student.getID(), address));
+	        indexBST.add(new Pair<>(student.getID(), address));
 
 	    } catch (IOException ex) {
 	        System.out.println("Error while adding a record: " + ex.getMessage());
@@ -618,20 +601,28 @@ public class Main {
 	
 	//Checks for an extant index
 	private static boolean checkIndex() {
-	    return !indexList.iterator().hasNext();
+	    return indexBST.isEmpty();
 	}
 	
-	//Helper method helps interface with pair and list classes
+	//Outer method inputs student ID outputs matching pair object
 	private static Pair<Integer> findPairByStudentID(int studentID) {
-		
-	    for (Pair<Integer> pair : indexList) {
-	        if (pair.getFirst().equals(studentID)) {
-	            return pair;
-	        }
+	    return findPairByStudentIDInBST(indexBST.getRoot(), studentID);
+	}
+
+	//inner method works recursively through the BST to find matching pair to provided id
+	private static Pair<Integer> findPairByStudentIDInBST(BST.Node<Pair<Integer>> node, int studentID) {
+	    if (node == null) {
+	        return null;
 	    }
-	    
-	    return null;
-	    
+
+	    Pair<Integer> currentPair = node.getData();
+	    if (currentPair.getFirst().equals(studentID)) {
+	        return currentPair;
+	    } else if (studentID < currentPair.getFirst()) {
+	        return findPairByStudentIDInBST(node.getLeft(), studentID);
+	    } else {
+	        return findPairByStudentIDInBST(node.getRight(), studentID);
+	    }
 	}
 
 }
